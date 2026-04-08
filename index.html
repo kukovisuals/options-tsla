@@ -1,0 +1,1646 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>FLOW — Options Intelligence</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=Bebas+Neue&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:         #05070a;
+  --bg2:        #080c10;
+  --bg3:        #0c1118;
+  --border:     rgba(255,255,255,0.06);
+  --border2:    rgba(255,255,255,0.10);
+
+  --long:       #00e5a0;   /* green — long signal */
+  --short:      #ff3a5e;   /* red — short signal */
+  --neutral:    #4a6070;
+  --call:       #ff7040;   /* orange */
+  --put:        #4090ff;   /* blue */
+  --signal:     #ffe040;   /* yellow — 2x vol */
+  --white:      #e8eef2;
+  --dim:        #3a5060;
+  --dimmer:     #1e2e38;
+
+  --mono:  'IBM Plex Mono', monospace;
+  --display: 'Bebas Neue', sans-serif;
+
+  --h: 100dvh;
+}
+
+html, body {
+  width: 100%; height: 100%;
+  background: var(--bg);
+  color: var(--white);
+  font-family: var(--mono);
+  overflow: hidden;
+  cursor: crosshair;
+}
+
+/* ── LAYOUT ─────────────────────────────── */
+#app {
+  display: grid;
+  grid-template-rows: 48px 1fr 220px;
+  grid-template-columns: 1fr 320px;
+  height: 100dvh;
+  gap: 0;
+}
+
+/* ── TOPBAR ─────────────────────────────── */
+#topbar {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 0;
+  background: var(--bg2);
+  border-bottom: 1px solid var(--border);
+  padding: 0 20px;
+  gap: 20px;
+}
+
+.tb-logo {
+  font-family: var(--display);
+  font-size: 22px;
+  letter-spacing: 0.12em;
+  color: var(--white);
+  margin-right: 8px;
+}
+
+.tb-ticker {
+  font-family: var(--display);
+  font-size: 26px;
+  letter-spacing: 0.08em;
+  color: var(--signal);
+  border: 1px solid rgba(255,224,64,0.3);
+  padding: 0 12px;
+  line-height: 32px;
+}
+
+.tb-price {
+  font-size: 20px;
+  font-weight: 500;
+  color: var(--white);
+  letter-spacing: 0.04em;
+}
+
+.tb-change {
+  font-size: 13px;
+  font-weight: 400;
+  padding: 2px 8px;
+  border-radius: 2px;
+}
+.tb-change.up   { background: rgba(0,229,160,0.12); color: var(--long); }
+.tb-change.down { background: rgba(255,58,94,0.12);  color: var(--short); }
+
+/* THE VERDICT — most important element */
+#verdict {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.verdict-label {
+  font-size: 11px;
+  color: var(--dim);
+  letter-spacing: 0.1em;
+}
+
+#verdict-signal {
+  font-family: var(--display);
+  font-size: 28px;
+  letter-spacing: 0.1em;
+  transition: color 0.4s, text-shadow 0.4s;
+}
+#verdict-signal.LONG  {
+  color: var(--long);
+  text-shadow: 0 0 20px rgba(0,229,160,0.5);
+}
+#verdict-signal.SHORT {
+  color: var(--short);
+  text-shadow: 0 0 20px rgba(255,58,94,0.5);
+}
+#verdict-signal.NEUTRAL {
+  color: var(--neutral);
+  text-shadow: none;
+}
+
+.verdict-score {
+  font-size: 11px;
+  color: var(--dim);
+}
+
+.tb-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 0 12px;
+  border-left: 1px solid var(--border);
+}
+.tb-stat-label { font-size: 9px; color: var(--dim); letter-spacing: 0.08em; text-transform: uppercase; }
+.tb-stat-val   { font-size: 13px; font-weight: 500; }
+.tb-stat-val.call  { color: var(--call); }
+.tb-stat-val.put   { color: var(--put); }
+.tb-stat-val.hot   { color: var(--signal); }
+
+/* ── MAIN CANVAS AREA ───────────────────── */
+#main {
+  grid-column: 1;
+  grid-row: 2;
+  position: relative;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+canvas#flow-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+/* Price crosshair label */
+#price-tag {
+  position: absolute;
+  right: 12px;
+  background: var(--signal);
+  color: #000;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  pointer-events: none;
+  transform: translateY(-50%);
+  transition: top 0.3s;
+  z-index: 10;
+}
+#price-tag::before {
+  content: '';
+  position: absolute;
+  right: 100%;
+  top: 50%;
+  transform: translateY(-50%);
+  border: 5px solid transparent;
+  border-right-color: var(--signal);
+}
+
+/* Hover tooltip */
+#tooltip {
+  position: absolute;
+  background: rgba(8,12,16,0.96);
+  border: 1px solid var(--border2);
+  padding: 10px 14px;
+  font-size: 10px;
+  line-height: 1.8;
+  pointer-events: none;
+  display: none;
+  z-index: 20;
+  min-width: 160px;
+}
+.tt-strike { font-family: var(--display); font-size: 18px; letter-spacing: 0.06em; margin-bottom: 4px; }
+.tt-row { display: flex; justify-content: space-between; gap: 16px; }
+.tt-label { color: var(--dim); }
+.tt-val   { color: var(--white); font-weight: 500; }
+
+/* ── RIGHT PANEL ────────────────────────── */
+#sidebar {
+  grid-column: 2;
+  grid-row: 2;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--border);
+  background: var(--bg2);
+  overflow: hidden;
+}
+
+.panel-section {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.section-title {
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--dim);
+  margin-bottom: 10px;
+}
+
+/* Signal cards */
+.signal-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  margin-bottom: 4px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.signal-card:hover { background: rgba(255,255,255,0.03); }
+.signal-card.dual  { border-color: rgba(255,58,94,0.35); background: rgba(255,58,94,0.05); }
+.signal-card.vol2x { border-color: rgba(255,224,64,0.25); background: rgba(255,224,64,0.04); }
+
+.sc-dot {
+  width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+}
+.sc-dot.call { background: var(--call); }
+.sc-dot.put  { background: var(--put); }
+.sc-dot.dual { background: var(--short); box-shadow: 0 0 6px var(--short); }
+
+.sc-strike {
+  font-family: var(--display);
+  font-size: 15px;
+  letter-spacing: 0.04em;
+  flex: 1;
+}
+.sc-meta {
+  font-size: 9px;
+  color: var(--dim);
+  line-height: 1.5;
+}
+.sc-ratio {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--signal);
+}
+
+/* Scrollable signal list */
+#signal-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 16px 8px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--dimmer) transparent;
+}
+#signal-list::-webkit-scrollbar { width: 3px; }
+#signal-list::-webkit-scrollbar-thumb { background: var(--dimmer); }
+
+/* ── BOTTOM — PRICE + NET FLOW CHART ────── */
+#bottom {
+  grid-column: 1 / -1;
+  grid-row: 3;
+  display: grid;
+  grid-template-columns: 1fr 320px;
+  border-top: 1px solid var(--border);
+  background: var(--bg2);
+}
+
+#price-chart-wrap {
+  position: relative;
+  border-right: 1px solid var(--border);
+  overflow: hidden;
+}
+
+canvas#price-canvas {
+  width: 100%; height: 100%;
+  display: block;
+}
+
+#price-chart-label {
+  position: absolute;
+  top: 8px; left: 12px;
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  color: var(--dim);
+  text-transform: uppercase;
+}
+
+#flow-bar-wrap {
+  position: relative;
+  overflow: hidden;
+}
+
+canvas#flow-bar-canvas {
+  width: 100%; height: 100%;
+  display: block;
+}
+
+#flow-bar-label {
+  position: absolute;
+  top: 8px; left: 12px;
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  color: var(--dim);
+  text-transform: uppercase;
+}
+
+/* ── LOADING ───────────────────────────── */
+#loading {
+  position: fixed; inset: 0;
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  z-index: 999;
+}
+.ld-title { font-family: var(--display); font-size: 36px; letter-spacing: 0.2em; color: var(--white); }
+.ld-sub   { font-size: 11px; color: var(--dim); letter-spacing: 0.1em; }
+.ld-bar   { width: 200px; height: 1px; background: var(--dimmer); position: relative; overflow: hidden; }
+.ld-bar::after {
+  content: '';
+  position: absolute; inset-y: 0; left: -40%;
+  width: 40%; background: var(--signal);
+  animation: ldslide 1s ease-in-out infinite;
+}
+@keyframes ldslide { to { left: 140%; } }
+
+#error-screen {
+  position: fixed; inset: 0;
+  background: var(--bg);
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+.err-title { font-family: var(--display); font-size: 30px; color: var(--short); }
+.err-body  { font-size: 12px; color: var(--dim); max-width: 440px; text-align: center; line-height: 1.8; }
+
+/* Signal pulse animation */
+@keyframes pulse-ring {
+  0%   { transform: scale(1);   opacity: 0.8; }
+  100% { transform: scale(2.2); opacity: 0; }
+}
+
+/* Legend strip */
+#legend {
+  position: absolute;
+  bottom: 8px; left: 12px;
+  display: flex;
+  gap: 16px;
+  font-size: 9px;
+  color: var(--dim);
+  pointer-events: none;
+}
+.leg { display: flex; align-items: center; gap: 5px; }
+.leg-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+
+/* ── PLAYBACK BAR ───────────────────────── */
+#playback-bar {
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  height: 44px;
+  background: rgba(5,7,10,0.96);
+  border-top: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 16px;
+  z-index: 30;
+  backdrop-filter: blur(6px);
+}
+
+#btn-play {
+  width: 30px; height: 30px;
+  border-radius: 50%;
+  border: 1px solid rgba(255,224,64,0.4);
+  background: rgba(255,224,64,0.08);
+  color: var(--signal);
+  font-size: 13px;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+  transition: background 0.15s, border-color 0.15s;
+  line-height: 1;
+  padding: 0;
+}
+#btn-play:hover { background: rgba(255,224,64,0.18); border-color: rgba(255,224,64,0.7); }
+#btn-play.playing { color: var(--white); border-color: rgba(255,255,255,0.3); background: rgba(255,255,255,0.06); }
+
+#btn-restart {
+  width: 24px; height: 24px;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--dim);
+  font-size: 11px;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+  transition: color 0.15s;
+}
+#btn-restart:hover { color: var(--white); }
+
+/* Timeline scrubber */
+#timeline-wrap {
+  flex: 1;
+  position: relative;
+  height: 20px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+}
+
+#timeline-track {
+  position: absolute;
+  left: 0; right: 0;
+  height: 3px;
+  background: var(--dimmer);
+  border-radius: 2px;
+}
+
+#timeline-fill {
+  position: absolute;
+  left: 0;
+  height: 3px;
+  background: var(--signal);
+  border-radius: 2px;
+  width: 0%;
+  transition: width 0.1s;
+  pointer-events: none;
+}
+
+#timeline-thumb {
+  position: absolute;
+  width: 12px; height: 12px;
+  border-radius: 50%;
+  background: var(--signal);
+  border: 2px solid var(--bg);
+  top: 50%; transform: translate(-50%, -50%);
+  left: 0%;
+  box-shadow: 0 0 6px rgba(255,224,64,0.5);
+  pointer-events: none;
+  transition: left 0.1s;
+}
+
+/* Minute tick marks */
+#timeline-ticks {
+  position: absolute;
+  left: 0; right: 0;
+  top: 100%;
+  margin-top: 3px;
+  display: flex;
+  justify-content: space-between;
+  pointer-events: none;
+}
+.tick-label {
+  font-size: 8px;
+  color: var(--dimmer);
+  font-family: var(--mono);
+  transform: translateX(-50%);
+}
+
+#playback-time {
+  font-family: var(--display);
+  font-size: 18px;
+  letter-spacing: 0.06em;
+  color: var(--signal);
+  min-width: 70px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+#playback-minute {
+  font-size: 9px;
+  color: var(--dim);
+  min-width: 80px;
+  text-align: right;
+  flex-shrink: 0;
+  line-height: 1.6;
+}
+
+/* Speed selector */
+.speed-btn {
+  font-size: 9px;
+  padding: 3px 7px;
+  border-radius: 2px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--dim);
+  cursor: pointer;
+  font-family: var(--mono);
+  transition: all 0.12s;
+}
+.speed-btn:hover  { color: var(--white); border-color: var(--border2); }
+.speed-btn.active { color: var(--signal); border-color: rgba(255,224,64,0.4); background: rgba(255,224,64,0.07); }
+</style>
+</head>
+<body>
+
+<div id="loading">
+  <div class="ld-title">FLOW</div>
+  <div class="ld-bar"></div>
+  <div class="ld-sub" id="ld-status">READING DATA.JSON</div>
+</div>
+<div id="error-screen">
+  <div class="err-title">NO DATA</div>
+  <div class="err-body" id="err-body">Place data.json in the same folder and open via local server (python3 -m http.server)</div>
+</div>
+
+<div id="app" style="display:none">
+
+  <!-- TOP BAR -->
+  <div id="topbar">
+    <span class="tb-logo">FLOW</span>
+    <span class="tb-ticker" id="tb-ticker">—</span>
+    <span class="tb-price"  id="tb-price">$—</span>
+    <span class="tb-change" id="tb-change">—</span>
+
+    <div class="tb-stat">
+      <span class="tb-stat-label">CALL VOL</span>
+      <span class="tb-stat-val call" id="tb-callvol">—</span>
+    </div>
+    <div class="tb-stat">
+      <span class="tb-stat-label">PUT VOL</span>
+      <span class="tb-stat-val put" id="tb-putvol">—</span>
+    </div>
+    <div class="tb-stat">
+      <span class="tb-stat-label">P/C RATIO</span>
+      <span class="tb-stat-val" id="tb-pcratio">—</span>
+    </div>
+    <div class="tb-stat">
+      <span class="tb-stat-label">2× SIGNALS</span>
+      <span class="tb-stat-val hot" id="tb-signals">—</span>
+    </div>
+    <div class="tb-stat">
+      <span class="tb-stat-label">NET PREMIUM</span>
+      <span class="tb-stat-val" id="tb-prem">—</span>
+    </div>
+
+    <div id="verdict">
+      <span class="verdict-label">SIGNAL</span>
+      <span id="verdict-signal" class="NEUTRAL">READING</span>
+      <span class="verdict-score" id="verdict-score"></span>
+    </div>
+  </div>
+
+  <!-- MAIN: Strike heatmap + 3D bars -->
+  <div id="main">
+    <canvas id="flow-canvas"></canvas>
+    <div id="price-tag" style="display:none">$—</div>
+    <div id="tooltip">
+      <div class="tt-strike" id="tt-strike">—</div>
+      <div class="tt-row"><span class="tt-label">TYPE</span><span class="tt-val" id="tt-type">—</span></div>
+      <div class="tt-row"><span class="tt-label">ASK VOL</span><span class="tt-val" id="tt-askvol">—</span></div>
+      <div class="tt-row"><span class="tt-label">BID VOL</span><span class="tt-val" id="tt-bidvol">—</span></div>
+      <div class="tt-row"><span class="tt-label">AGGRESSION</span><span class="tt-val" id="tt-aggr">—</span></div>
+      <div class="tt-row"><span class="tt-label">2× SIGNAL</span><span class="tt-val" id="tt-sig">—</span></div>
+      <div class="tt-row"><span class="tt-label">CONVICTION</span><span class="tt-val" id="tt-ci">—</span></div>
+    </div>
+    <div id="legend">
+      <div class="leg"><div class="leg-dot" style="background:var(--call)"></div>CALLS (ask-dominated)</div>
+      <div class="leg"><div class="leg-dot" style="background:var(--put)"></div>PUTS (ask-dominated)</div>
+      <div class="leg"><div class="leg-dot" style="background:var(--signal)"></div>2× VOLUME</div>
+      <div class="leg"><div class="leg-dot" style="background:var(--short);box-shadow:0 0 4px var(--short)"></div>DUAL SIGNAL</div>
+    </div>
+
+    <!-- PLAYBACK BAR -->
+    <div id="playback-bar">
+      <button id="btn-restart" title="Restart">↺</button>
+      <button id="btn-play" title="Play/Pause">▶</button>
+
+      <div style="display:flex;flex-direction:column;gap:2px;flex-shrink:0">
+        <div style="font-size:8px;color:var(--dim);letter-spacing:0.1em">SPEED</div>
+        <div style="display:flex;gap:4px">
+          <button class="speed-btn" data-speed="0.5">0.5×</button>
+          <button class="speed-btn active" data-speed="1">1×</button>
+          <button class="speed-btn" data-speed="2">2×</button>
+          <button class="speed-btn" data-speed="5">5×</button>
+        </div>
+      </div>
+
+      <div id="timeline-wrap">
+        <div id="timeline-track"></div>
+        <div id="timeline-fill"></div>
+        <div id="timeline-thumb"></div>
+        <div id="timeline-ticks"></div>
+      </div>
+
+      <div id="playback-minute" style="text-align:right">
+        <div id="pb-min-label" style="color:var(--white);font-size:10px">—</div>
+        <div id="pb-trade-count" style="color:var(--dim);font-size:9px">— trades</div>
+      </div>
+
+      <div id="playback-time">—:—</div>
+    </div>
+  </div>
+
+  <!-- RIGHT SIDEBAR -->
+  <div id="sidebar">
+    <div class="panel-section">
+      <div class="section-title">ACTIVE SIGNALS</div>
+      <div id="signal-summary" style="font-size:10px;line-height:1.9;color:var(--dim)">—</div>
+    </div>
+    <div class="section-title" style="padding:10px 16px 0;font-size:9px;letter-spacing:0.14em;text-transform:uppercase;color:var(--dim)">FIRING STRIKES</div>
+    <div id="signal-list"></div>
+  </div>
+
+  <!-- BOTTOM ROW -->
+  <div id="bottom">
+    <div id="price-chart-wrap">
+      <canvas id="price-canvas"></canvas>
+      <div id="price-chart-label">PRICE + ATM STRIKE</div>
+    </div>
+    <div id="flow-bar-wrap">
+      <canvas id="flow-bar-canvas"></canvas>
+      <div id="flow-bar-label">NET FLOW / STRIKE</div>
+    </div>
+  </div>
+
+</div><!-- /app -->
+
+<script>
+/* ═══════════════════════════════════════════════════
+   PLAYBACK ENGINE
+   Slices all trades into per-minute snapshots.
+   playhead (0..1) controls which minutes are visible.
+   Each renderer receives a "slice" of data up to
+   the current minute so everything builds in sync.
+═══════════════════════════════════════════════════ */
+class PlaybackEngine {
+  constructor(rawTrades) {
+    // Sort all individual trades by timestamp
+    this.allTrades = [...rawTrades].sort(
+      (a,b) => new Date(a.executed_at) - new Date(b.executed_at)
+    );
+    this._buildMinuteIndex();
+    this.playing    = false;
+    this.speed      = 1;          // minutes per second of real time
+    this.currentMin = 0;          // index into this.minutes[]
+    this._lastTick  = null;
+    this._fractional = 0;         // sub-minute accumulator
+    this.onTick     = null;       // callback(minuteIdx, snapshot)
+  }
+
+  _buildMinuteIndex() {
+    const map = {};
+    for (const t of this.allTrades) {
+      const d  = new Date(t.executed_at);
+      const mk = d.getUTCHours()*60 + d.getUTCMinutes();
+      if (!map[mk]) map[mk] = [];
+      map[mk].push(t);
+    }
+    // Sorted unique minute keys
+    this.minutes = Object.keys(map).map(Number).sort((a,b)=>a-b);
+    this.minuteMap = map;
+    this.totalMinutes = this.minutes.length;
+  }
+
+  // Returns all trades UP TO AND INCLUDING minute index `idx`
+  tradesUpTo(idx) {
+    const result = [];
+    for (let i = 0; i <= Math.min(idx, this.minutes.length-1); i++) {
+      const mk = this.minutes[i];
+      result.push(...(this.minuteMap[mk]||[]));
+    }
+    return result;
+  }
+
+  minuteLabel(idx) {
+    const mk = this.minutes[Math.min(idx, this.minutes.length-1)];
+    if (mk == null) return '—:—';
+    const h = Math.floor(mk/60), m = mk%60;
+    return `${h}:${String(m).padStart(2,'0')}`;
+  }
+
+  play()   { this.playing = true;  this._lastTick = performance.now(); }
+  pause()  { this.playing = false; }
+  restart(){ this.currentMin = 0; this._fractional = 0; if(this.onTick) this.onTick(0); }
+  seekTo(fraction) {
+    this.currentMin = Math.round(fraction * (this.totalMinutes-1));
+    this._fractional = this.currentMin;
+    if (this.onTick) this.onTick(this.currentMin);
+  }
+
+  tick(now) {
+    if (!this.playing) { this._lastTick = now; return; }
+    const dt = (now - (this._lastTick||now)) / 1000; // seconds elapsed
+    this._lastTick = now;
+    this._fractional += dt * this.speed;
+    const newMin = Math.floor(this._fractional);
+    if (newMin !== this.currentMin || newMin >= this.totalMinutes) {
+      this.currentMin = Math.min(newMin, this.totalMinutes - 1);
+      if (this.onTick) this.onTick(this.currentMin);
+      if (this.currentMin >= this.totalMinutes - 1) {
+        this.playing = false;
+        this._fractional = this.totalMinutes - 1;
+      }
+    }
+  }
+
+  get progress() {
+    return this.totalMinutes > 1
+      ? Math.min(this._fractional / (this.totalMinutes-1), 1)
+      : 0;
+  }
+}
+
+/* ═══════════════════════════════════════════════════
+   DATA PROCESSOR  (now accepts a subset of trades)
+═══════════════════════════════════════════════════ */
+class Processor {
+  constructor(raw) {
+    this.raw = raw.data || raw;
+    this.byKey = {};
+    this.buckets = {};
+  }
+
+  run() {
+    this._aggregate();
+    this._minuteBuckets();
+    this._volSignal();
+    this._conviction();
+    return this._structure();
+  }
+
+  _aggregate() {
+    for (const t of this.raw) {
+      if (t.canceled) continue;
+      const k = `${t.strike}_${t.option_type}`;
+      if (!this.byKey[k]) this.byKey[k] = {
+        strike: +t.strike, type: t.option_type,
+        askVol:0, bidVol:0, noVol:0, totalVol:0,
+        premium:0, gamma:0, theta:0, delta:0, vega:0,
+        iv:0, oi:0, underlyingPrice:0, n:0,
+        tags:{bullish:0,bearish:0,ask_side:0,bid_side:0},
+        trades:[]
+      };
+      const s = this.byKey[k];
+      s.askVol   += t.ask_vol||0;
+      s.bidVol   += t.bid_vol||0;
+      s.noVol    += t.no_side_vol||0;
+      s.totalVol += t.volume||0;
+      s.premium  += +t.premium||0;
+      s.gamma    += +t.gamma||0;
+      s.theta    += +t.theta||0;
+      s.delta    += +t.delta||0;
+      s.vega     += +t.vega||0;
+      s.iv       += +t.implied_volatility||0;
+      s.oi        = Math.max(s.oi, t.open_interest||0);
+      s.underlyingPrice = +t.underlying_price||0;
+      s.n++;
+      for (const tag of (t.tags||[])) if (tag in s.tags) s.tags[tag]++;
+      s.trades.push(t);
+    }
+    for (const s of Object.values(this.byKey)) {
+      if (s.n) { s.gamma/=s.n; s.theta/=s.n; s.delta/=s.n; s.vega/=s.n; s.iv/=s.n; }
+      const tot = s.askVol+s.bidVol; s.aggression = tot>0 ? s.askVol/tot : 0.5;
+    }
+  }
+
+  _minuteBuckets() {
+    for (const t of this.raw) {
+      if (t.canceled) continue;
+      const k = `${t.strike}_${t.option_type}`;
+      if (!this.buckets[k]) this.buckets[k] = {};
+      const d = new Date(t.executed_at);
+      const mk = d.getUTCHours()*60 + d.getUTCMinutes();
+      this.buckets[k][mk] = (this.buckets[k][mk]||0) + (t.volume||0);
+    }
+  }
+
+  _volSignal() {
+    for (const [k, s] of Object.entries(this.byKey)) {
+      const nz = Object.values(this.buckets[k]||{}).filter(v=>v>0);
+      s.volSig = {count:nz.length, qualified:false, avg:0, peak:0, ratio:0, firing:false};
+      if (nz.length>=5) {
+        const avg = nz.reduce((a,b)=>a+b,0)/nz.length;
+        const peak = Math.max(...nz);
+        s.volSig = {count:nz.length, qualified:true, avg, peak, ratio:peak/avg, firing: peak>=2*avg};
+      }
+    }
+  }
+
+  _conviction() {
+    for (const s of Object.values(this.byKey)) {
+      const net = s.askVol - s.bidVol;
+      const absTheta = Math.abs(s.theta)||0.0001;
+      s.ci = net * s.gamma * (1/absTheta);
+    }
+  }
+
+  _structure() {
+    const all   = Object.values(this.byKey);
+    const calls = all.filter(s=>s.type==='call').sort((a,b)=>a.strike-b.strike);
+    const puts  = all.filter(s=>s.type==='put').sort((a,b)=>a.strike-b.strike);
+    const maxVol  = Math.max(...all.map(s=>s.totalVol),1);
+    const maxAsk  = Math.max(...all.map(s=>s.askVol),1);
+    const maxBid  = Math.max(...all.map(s=>s.bidVol),1);
+    const maxCI   = Math.max(...all.map(s=>Math.abs(s.ci)),0.0001);
+    const maxPrem = Math.max(...all.map(s=>s.premium),1);
+
+    const totalAsk  = all.reduce((a,s)=>a+s.askVol,0);
+    const totalBid  = all.reduce((a,s)=>a+s.bidVol,0);
+    const callVol   = calls.reduce((a,s)=>a+s.totalVol,0);
+    const putVol    = puts.reduce((a,s)=>a+s.totalVol,0);
+    const callPrem  = calls.reduce((a,s)=>a+s.premium,0);
+    const putPrem   = puts.reduce((a,s)=>a+s.premium,0);
+    const netPrem   = callPrem - putPrem;
+    const pcRatio   = callVol>0 ? putVol/callVol : 1;
+
+    const firing = all.filter(s=>s.volSig.firing);
+    const dual   = all.filter(s=>s.volSig.firing && Math.abs(s.ci)>0);
+
+    // Verdict scoring: multiple signals → direction
+    let score = 0;
+    // Ask bias: >55% ask = bullish pressure
+    const askBias = totalAsk/(totalAsk+totalBid+1);
+    if (askBias > 0.55) score += 2;
+    else if (askBias < 0.45) score -= 2;
+    // P/C ratio: >1.1 = puts dominate = bearish
+    if (pcRatio > 1.1) score -= 2;
+    else if (pcRatio < 0.85) score += 2;
+    // Net premium: more $ on calls = bullish
+    if (netPrem > 0) score += 1;
+    else score -= 1;
+    // Firing puts vs calls
+    const firingCalls = firing.filter(s=>s.type==='call').length;
+    const firingPuts  = firing.filter(s=>s.type==='put').length;
+    if (firingCalls > firingPuts) score += 1;
+    else if (firingPuts > firingCalls) score -= 1;
+
+    const verdict = score >= 2 ? 'LONG' : score <= -2 ? 'SHORT' : 'NEUTRAL';
+
+    return {
+      calls, puts, all,
+      ticker: this.raw[0]?.underlying_symbol||'—',
+      underlyingPrice: all[0]?.underlyingPrice||0,
+      tradeCount: this.raw.length,
+      ranges: { maxVol, maxAsk, maxBid, maxCI, maxPrem },
+      stats: { totalAsk, totalBid, callVol, putVol, pcRatio, netPrem, askBias },
+      signals: { firing, dual, firingCalls, firingPuts },
+      verdict, score
+    };
+  }
+
+  static async load(url='./data.json') {
+    const r = await fetch(url);
+    if (!r.ok) throw new Error(`Cannot load ${url} (HTTP ${r.status})`);
+    const json = await r.json();
+    const raw = json.data || json;
+    const processed = new Processor(json).run();
+    processed._rawTrades = raw;   // keep raw for playback engine
+    return processed;
+  }
+}
+
+/* ═══════════════════════════════════════════════════
+   COLOR UTILITIES
+═══════════════════════════════════════════════════ */
+const clamp = (v,mn,mx) => Math.max(mn,Math.min(mx,v));
+const lerp  = (a,b,t) => a + (b-a)*clamp(t,0,1);
+
+function hexToRgb(hex) {
+  const n = parseInt(hex.replace('#',''),16);
+  return [(n>>16)&255,(n>>8)&255,n&255];
+}
+
+// Returns rgba string blending between two hex colors
+function blendColor(hexA, hexB, t) {
+  const a = hexToRgb(hexA), b = hexToRgb(hexB);
+  const r = Math.round(lerp(a[0],b[0],t));
+  const g = Math.round(lerp(a[1],b[1],t));
+  const bl= Math.round(lerp(a[2],b[2],t));
+  return `rgb(${r},${g},${bl})`;
+}
+
+// Aggression ratio → color: 0=bid blue, 0.5=neutral, 1=ask orange
+function aggrColor(ratio, alpha=1) {
+  if (ratio < 0.5) return blendColor('#1e3a60','#4090ff', ratio*2);
+  else             return blendColor('#c04020','#ff7040',(ratio-0.5)*2);
+}
+
+/* ═══════════════════════════════════════════════════
+   MAIN CANVAS RENDERER — Strike Map
+   Flat 2D top-down view: X=strike, two rows (calls/puts)
+   Bar height = volume, color = aggression, glow = signal
+═══════════════════════════════════════════════════ */
+class StrikeMapRenderer {
+  constructor(canvas, data) {
+    this.canvas = canvas;
+    this.ctx    = canvas.getContext('2d');
+    this.data   = data;
+    this.hovered= null;
+    this.t      = 0;
+    this._resize();
+    this._bindMouse();
+    window.addEventListener('resize', () => this._resize());
+  }
+
+  _resize() {
+    const wrap = this.canvas.parentElement;
+    this.canvas.width  = wrap.clientWidth;
+    this.canvas.height = wrap.clientHeight;
+    this._layout();
+  }
+
+  _layout() {
+    const W = this.canvas.width, H = this.canvas.height;
+    const allStrikes = [...new Set(this.data.all.map(s=>s.strike))].sort((a,b)=>a-b);
+    this.strikes = allStrikes;
+    this.W = W; this.H = H;
+
+    const PAD_L = 60, PAD_R = 30, PAD_T = 20, PAD_B = 30;
+    this.pad = {l:PAD_L, r:PAD_R, t:PAD_T, b:PAD_B};
+    this.chartW = W - PAD_L - PAD_R;
+    this.chartH = H - PAD_T - PAD_B;
+
+    const n = allStrikes.length;
+    this.barW   = Math.max(8, Math.min(48, (this.chartW / n) * 0.72));
+    this.barGap = this.chartW / n;
+    this.centerY = PAD_T + this.chartH / 2;
+
+    // Map strike index → X center
+    this.strikeX = {};
+    allStrikes.forEach((s,i) => {
+      this.strikeX[s] = PAD_L + this.barGap * i + this.barGap/2;
+    });
+
+    // Price line X
+    const minS = allStrikes[0], maxS = allStrikes[n-1];
+    this.priceX = PAD_L + ((this.data.underlyingPrice - minS) / ((maxS-minS)||1)) * this.chartW;
+    this.minStrike = minS; this.maxStrike = maxS;
+  }
+
+  draw(t) {
+    this.t = t;
+    // Re-layout every frame since data may have changed
+    this._layout();
+    const { ctx, W, H, data } = this;
+    ctx.clearRect(0, 0, W, H);
+
+    this._drawGrid();
+    this._drawBars();
+    this._drawPriceLine();
+    this._drawStrikeLabels();
+    this._drawYLabels();
+  }
+
+  _drawGrid() {
+    const { ctx, W, H, pad } = this;
+    // Center divider
+    ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4,6]);
+    ctx.beginPath();
+    ctx.moveTo(pad.l, this.centerY);
+    ctx.lineTo(W - pad.r, this.centerY);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Row labels
+    ctx.fillStyle = 'rgba(255,112,64,0.5)';
+    ctx.font = '600 10px IBM Plex Mono';
+    ctx.textAlign = 'right';
+    ctx.fillText('CALLS', pad.l - 8, this.centerY - 12);
+    ctx.fillStyle = 'rgba(64,144,255,0.5)';
+    ctx.fillText('PUTS',  pad.l - 8, this.centerY + 20);
+  }
+
+  _drawBars() {
+    const { ctx, data, centerY, barW, t } = this;
+    const MAX_H = (this.chartH / 2) - 20;
+
+    // Draw calls (upward from center) + puts (downward)
+    const groups = [
+      { list: data.calls, dir: -1, baseColor: '#ff7040' },
+      { list: data.puts,  dir:  1, baseColor: '#4090ff' },
+    ];
+
+    for (const { list, dir, baseColor } of groups) {
+      for (const s of list) {
+        const x  = this.strikeX[s.strike];
+        if (!x) continue;
+        const norm = s.totalVol / data.ranges.maxVol;
+        const barH = Math.max(3, norm * MAX_H);
+        const y0   = centerY;
+        const y1   = centerY + dir * barH;
+        const top  = Math.min(y0, y1);
+
+        // Color encodes aggression (call or put side)
+        const col  = aggrColor(s.aggression);
+        // Saturation scales with volume
+        const alpha= lerp(0.35, 0.95, norm);
+
+        // Glow for signal
+        if (s.volSig.firing) {
+          const pulse = 0.5 + 0.5 * Math.sin(t * 4 + s.strike * 0.1);
+          ctx.shadowColor = s.volSig.ratio >= 3 ? '#ff3a5e' : '#ffe040';
+          ctx.shadowBlur  = 8 + pulse * 14;
+        } else {
+          ctx.shadowBlur = 0;
+        }
+
+        // Main bar
+        ctx.fillStyle = col;
+        ctx.globalAlpha = alpha;
+        ctx.fillRect(x - barW/2, top, barW, barH);
+        ctx.globalAlpha = 1;
+        ctx.shadowBlur  = 0;
+
+        // Top edge highlight
+        ctx.fillStyle = `rgba(255,255,255,0.12)`;
+        ctx.fillRect(x - barW/2, dir<0 ? top : top+barH-1, barW, 1);
+
+        // 2× ring at bar base (floor glow)
+        if (s.volSig.firing) {
+          const rw = barW + 10;
+          const pulse2 = 0.3 + 0.3 * Math.sin(t * 3);
+          ctx.strokeStyle = s.volSig.ratio >= 3 ? `rgba(255,58,94,${pulse2+0.2})` : `rgba(255,224,64,${pulse2})`;
+          ctx.lineWidth = 1.5;
+          ctx.strokeRect(x - rw/2, centerY - 1, rw, 2);
+        }
+
+        // Hover highlight
+        if (this.hovered === `${s.strike}_${s.type}`) {
+          ctx.strokeStyle = 'rgba(255,255,255,0.6)';
+          ctx.lineWidth = 1;
+          ctx.strokeRect(x - barW/2 - 1, top - 1, barW + 2, barH + 2);
+        }
+      }
+    }
+  }
+
+  _drawPriceLine() {
+    const { ctx, H, pad, priceX, data } = this;
+    if (!priceX || isNaN(priceX)) return;
+
+    // Glow
+    ctx.shadowColor = '#ffe040';
+    ctx.shadowBlur  = 12;
+    ctx.strokeStyle = '#ffe040';
+    ctx.lineWidth   = 1.5;
+    ctx.setLineDash([]);
+    ctx.beginPath();
+    ctx.moveTo(priceX, pad.t);
+    ctx.lineTo(priceX, H - pad.b);
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    // Price label at top
+    ctx.fillStyle   = '#ffe040';
+    ctx.font        = '500 10px IBM Plex Mono';
+    ctx.textAlign   = 'center';
+    ctx.fillText(`$${data.underlyingPrice.toFixed(2)}`, priceX, pad.t - 4);
+  }
+
+  _drawStrikeLabels() {
+    const { ctx, centerY, barW } = this;
+    ctx.fillStyle = 'rgba(74,96,112,0.8)';
+    ctx.font = '500 9px IBM Plex Mono';
+    ctx.textAlign = 'center';
+    for (const strike of this.strikes) {
+      const x = this.strikeX[strike];
+      ctx.fillText(strike, x, centerY + 48);
+    }
+  }
+
+  _drawYLabels() {
+    const { ctx, pad, centerY } = this;
+    const MAX_H = (this.chartH / 2) - 20;
+    ctx.fillStyle = 'rgba(74,96,112,0.6)';
+    ctx.font = '500 8px IBM Plex Mono';
+    ctx.textAlign = 'right';
+
+    const maxV = this.data.ranges.maxVol;
+    for (const frac of [0.25, 0.5, 1.0]) {
+      const y = centerY - frac * MAX_H;
+      ctx.fillText(`${Math.round(maxV * frac / 1000)}K`, pad.l - 4, y + 3);
+      ctx.strokeStyle = 'rgba(255,255,255,0.03)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(pad.l, y);
+      ctx.lineTo(this.W - pad.r, y);
+      ctx.stroke();
+    }
+  }
+
+  _bindMouse() {
+    this.canvas.addEventListener('mousemove', e => {
+      const rect = this.canvas.getBoundingClientRect();
+      const mx   = (e.clientX - rect.left) * (this.canvas.width / rect.width);
+      const my   = (e.clientY - rect.top)  * (this.canvas.height / rect.height);
+      this._hitTest(mx, my, e.clientX, e.clientY);
+    });
+    this.canvas.addEventListener('mouseleave', () => {
+      this.hovered = null;
+      document.getElementById('tooltip').style.display = 'none';
+    });
+  }
+
+  _hitTest(mx, my, cx, cy) {
+    const MAX_H = (this.chartH/2) - 20;
+    let found = null;
+    for (const s of this.data.all) {
+      const x = this.strikeX[s.strike];
+      if (!x) continue;
+      if (Math.abs(mx - x) > this.barW/2 + 4) continue;
+      const dir  = s.type==='call' ? -1 : 1;
+      const norm = s.totalVol / this.data.ranges.maxVol;
+      const barH = Math.max(3, norm * MAX_H);
+      const top  = Math.min(this.centerY, this.centerY + dir * barH);
+      if (my >= top - 4 && my <= top + barH + 4) { found = s; break; }
+    }
+    if (found) {
+      this.hovered = `${found.strike}_${found.type}`;
+      this._showTooltip(found, cx, cy);
+    } else {
+      this.hovered = null;
+      document.getElementById('tooltip').style.display = 'none';
+    }
+  }
+
+  _showTooltip(s, cx, cy) {
+    const tt = document.getElementById('tooltip');
+    const stCol = s.type==='call' ? '#ff7040' : '#4090ff';
+    document.getElementById('tt-strike').textContent = `$${s.strike}`;
+    document.getElementById('tt-strike').style.color = stCol;
+    document.getElementById('tt-type').textContent   = s.type.toUpperCase();
+    document.getElementById('tt-askvol').textContent = s.askVol.toLocaleString();
+    document.getElementById('tt-bidvol').textContent = s.bidVol.toLocaleString();
+    document.getElementById('tt-aggr').textContent   = `${(s.aggression*100).toFixed(0)}% ask`;
+    document.getElementById('tt-sig').textContent    = s.volSig.firing ? `✓ ${s.volSig.ratio.toFixed(1)}×` : '—';
+    document.getElementById('tt-ci').textContent     = s.ci.toFixed(2);
+    tt.style.display = 'block';
+    tt.style.left = (cx + 14) + 'px';
+    tt.style.top  = (cy - 20) + 'px';
+  }
+}
+
+/* ═══════════════════════════════════════════════════
+   PRICE CHART RENDERER (bottom left)
+   Simulates intraday price movement from underlying_price
+   spread across trade timestamps
+═══════════════════════════════════════════════════ */
+class PriceChartRenderer {
+  constructor(canvas, data) {
+    this.canvas = canvas;
+    this.ctx    = canvas.getContext('2d');
+    this.data   = data;
+    this._resize();
+    window.addEventListener('resize', ()=>this._resize());
+  }
+
+  _resize() {
+    const wrap = this.canvas.parentElement;
+    this.canvas.width  = wrap.clientWidth;
+    this.canvas.height = wrap.clientHeight;
+  }
+
+  buildPriceHistory(data) {
+    data = data || this.data;
+    // Extract price progression from trades sorted by time
+    const trades = [...data.all.flatMap(s=>s.trades)]
+      .sort((a,b)=>new Date(a.executed_at)-new Date(b.executed_at));
+
+    const points = [];
+    const seen = new Set();
+    for (const t of trades) {
+      const d = new Date(t.executed_at);
+      const mk = d.getUTCHours()*60+d.getUTCMinutes();
+      if (!seen.has(mk)) {
+        seen.add(mk);
+        points.push({ minute: mk, price: +t.underlying_price });
+      }
+    }
+    // Sort by minute
+    points.sort((a,b)=>a.minute-b.minute);
+    this.pricePoints = points;
+    this._lastData   = data;
+  }
+
+  draw(t) {
+    const { ctx, canvas, data } = this;
+    const W = canvas.width, H = canvas.height;
+    ctx.clearRect(0,0,W,H);
+    if (!this.pricePoints || this.pricePoints.length < 2) return;
+
+    const pts   = this.pricePoints;
+    const PAD   = { l:40, r:12, t:14, b:20 };
+    const cW    = W - PAD.l - PAD.r;
+    const cH    = H - PAD.t - PAD.b;
+
+    const prices = pts.map(p=>p.price);
+    let   minP   = Math.min(...prices);
+    let   maxP   = Math.max(...prices);
+    const range  = maxP - minP || 1;
+    minP -= range * 0.1;
+    maxP += range * 0.1;
+
+    const toX = p => PAD.l + ((p.minute - pts[0].minute) / (pts[pts.length-1].minute - pts[0].minute || 1)) * cW;
+    const toY = p => PAD.t + (1 - (p.price - minP) / (maxP - minP)) * cH;
+
+    // Grid
+    ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+    ctx.lineWidth   = 1;
+    for (let i=0; i<=3; i++) {
+      const y = PAD.t + (i/3)*cH;
+      ctx.beginPath(); ctx.moveTo(PAD.l,y); ctx.lineTo(W-PAD.r,y); ctx.stroke();
+      const price = maxP - (i/3)*(maxP-minP);
+      ctx.fillStyle='rgba(74,96,112,0.7)';
+      ctx.font='8px IBM Plex Mono';
+      ctx.textAlign='right';
+      ctx.fillText(price.toFixed(1),PAD.l-4,y+3);
+    }
+
+    // Fill under line
+    const grad = ctx.createLinearGradient(0,PAD.t,0,H-PAD.b);
+    const up = pts[pts.length-1].price >= pts[0].price;
+    if (up) {
+      grad.addColorStop(0,'rgba(0,229,160,0.18)');
+      grad.addColorStop(1,'rgba(0,229,160,0)');
+    } else {
+      grad.addColorStop(0,'rgba(255,58,94,0.18)');
+      grad.addColorStop(1,'rgba(255,58,94,0)');
+    }
+    ctx.beginPath();
+    ctx.moveTo(toX(pts[0]), H-PAD.b);
+    for (const p of pts) ctx.lineTo(toX(p), toY(p));
+    ctx.lineTo(toX(pts[pts.length-1]), H-PAD.b);
+    ctx.closePath();
+    ctx.fillStyle = grad;
+    ctx.fill();
+
+    // Price line
+    ctx.beginPath();
+    ctx.moveTo(toX(pts[0]), toY(pts[0]));
+    for (const p of pts) ctx.lineTo(toX(p), toY(p));
+    ctx.strokeStyle = up ? '#00e5a0' : '#ff3a5e';
+    ctx.lineWidth   = 1.5;
+    ctx.shadowColor = up ? '#00e5a0' : '#ff3a5e';
+    ctx.shadowBlur  = 6;
+    ctx.stroke();
+    ctx.shadowBlur  = 0;
+
+    // ATM strike horizontal line
+    const snapData = this._lastData || this.data;
+    const atmStrikes = [...new Set(snapData.all.map(s=>s.strike))].sort((a,b)=>
+      Math.abs(a-snapData.underlyingPrice) - Math.abs(b-snapData.underlyingPrice));
+    if (atmStrikes[0]) {
+      const atmY = toY({price: atmStrikes[0]});
+      if (atmY >= PAD.t && atmY <= H-PAD.b) {
+        ctx.setLineDash([3,5]);
+        ctx.strokeStyle='rgba(255,224,64,0.4)';
+        ctx.lineWidth=1;
+        ctx.beginPath(); ctx.moveTo(PAD.l,atmY); ctx.lineTo(W-PAD.r,atmY); ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillStyle='rgba(255,224,64,0.6)';
+        ctx.font='8px IBM Plex Mono';
+        ctx.textAlign='left';
+        ctx.fillText(`ATM $${atmStrikes[0]}`, W-PAD.r-50, atmY-2);
+      }
+    }
+
+    // Current price dot
+    const lastP = pts[pts.length-1];
+    const lx=toX(lastP), ly=toY(lastP);
+    const pulse = 0.5+0.5*Math.sin(t*4);
+    ctx.beginPath();
+    ctx.arc(lx,ly,3+pulse*2,0,Math.PI*2);
+    ctx.fillStyle=`rgba(${up?'0,229,160':'255,58,94'},${0.2+pulse*0.3})`;
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(lx,ly,2.5,0,Math.PI*2);
+    ctx.fillStyle= up ? '#00e5a0' : '#ff3a5e';
+    ctx.shadowColor = up ? '#00e5a0' : '#ff3a5e';
+    ctx.shadowBlur  = 10;
+    ctx.fill();
+    ctx.shadowBlur  = 0;
+
+    // Time labels
+    ctx.fillStyle='rgba(74,96,112,0.6)';
+    ctx.font='8px IBM Plex Mono';
+    ctx.textAlign='center';
+    for (const p of pts) {
+      const h = Math.floor(p.minute/60), m = p.minute%60;
+      ctx.fillText(`${h}:${String(m).padStart(2,'0')}`, toX(p), H-PAD.b+10);
+    }
+  }
+}
+
+/* ═══════════════════════════════════════════════════
+   NET FLOW BAR CHART (bottom right)
+   Per strike: net = askVol - bidVol, colored by direction
+═══════════════════════════════════════════════════ */
+class NetFlowRenderer {
+  constructor(canvas, data) {
+    this.canvas = canvas;
+    this.ctx    = canvas.getContext('2d');
+    this.data   = data;
+    this._resize();
+    window.addEventListener('resize',()=>this._resize());
+  }
+  _resize() {
+    const wrap = this.canvas.parentElement;
+    this.canvas.width  = wrap.clientWidth;
+    this.canvas.height = wrap.clientHeight;
+  }
+  draw() {
+    const { ctx, canvas, data } = this;
+    const W = canvas.width, H = canvas.height;
+    ctx.clearRect(0,0,W,H);
+
+    const allStrikes = [...new Set(data.all.map(s=>s.strike))].sort((a,b)=>a-b);
+    const PAD  = {l:8,r:8,t:24,b:28};
+    const cW   = W-PAD.l-PAD.r;
+    const cH   = H-PAD.t-PAD.b;
+    const n    = allStrikes.length;
+    const bW   = Math.max(4, (cW/n)*0.7);
+    const midY = PAD.t + cH/2;
+
+    // Net flow per strike (calls + puts combined)
+    const nets = allStrikes.map(strike => {
+      const c = data.calls.find(s=>s.strike===strike);
+      const p = data.puts.find(s=>s.strike===strike);
+      const net = ((c?.askVol||0)-(c?.bidVol||0)) + ((p?.askVol||0)-(p?.bidVol||0));
+      return { strike, net };
+    });
+    const maxNet = Math.max(...nets.map(n=>Math.abs(n.net)),1);
+
+    // Center line
+    ctx.strokeStyle='rgba(255,255,255,0.08)';
+    ctx.lineWidth=1;
+    ctx.setLineDash([3,5]);
+    ctx.beginPath(); ctx.moveTo(PAD.l,midY); ctx.lineTo(W-PAD.r,midY); ctx.stroke();
+    ctx.setLineDash([]);
+
+    ctx.fillStyle='rgba(74,96,112,0.5)';
+    ctx.font='8px IBM Plex Mono'; ctx.textAlign='left';
+    ctx.fillText('BULL →',PAD.l+2,midY-4);
+    ctx.fillText('BEAR →',PAD.l+2,midY+12);
+
+    for (let i=0; i<n; i++) {
+      const { strike, net } = nets[i];
+      const x    = PAD.l + (i+0.5)*(cW/n);
+      const norm = net / maxNet;
+      const barH = Math.abs(norm) * (cH/2 - 10);
+      const isBull = net >= 0;
+      const col    = isBull ? '#00e5a0' : '#ff3a5e';
+      const alpha  = 0.3 + 0.6 * Math.abs(norm);
+
+      ctx.fillStyle = col;
+      ctx.globalAlpha = alpha;
+      ctx.fillRect(x-bW/2, isBull ? midY-barH : midY, bW, barH);
+      ctx.globalAlpha = 1;
+
+      // Strike label
+      ctx.fillStyle='rgba(74,96,112,0.7)';
+      ctx.font='8px IBM Plex Mono';
+      ctx.textAlign='center';
+      ctx.fillText(strike, x, H-PAD.b+10);
+
+      // Signal marker
+      const sd = data.all.find(s=>s.strike===strike && s.volSig.firing);
+      if (sd) {
+        ctx.fillStyle='rgba(255,224,64,0.9)';
+        ctx.beginPath();
+        ctx.arc(x, isBull ? midY-barH-5 : midY+barH+5, 2.5, 0, Math.PI*2);
+        ctx.fill();
+      }
+    }
+
+    // Y labels
+    ctx.fillStyle='rgba(74,96,112,0.5)';
+    ctx.font='8px IBM Plex Mono'; ctx.textAlign='left';
+    ctx.fillText(`+${Math.round(maxNet/1000)}K`,2,PAD.t+10);
+    ctx.fillText(`-${Math.round(maxNet/1000)}K`,2,H-PAD.b-2);
+  }
+}
+
+/* ═══════════════════════════════════════════════════
+   HUD POPULATION
+═══════════════════════════════════════════════════ */
+function buildHUD(data) {
+  const { stats, signals, verdict, score } = data;
+
+  document.getElementById('tb-ticker').textContent  = data.ticker;
+  document.getElementById('tb-price').textContent   = `$${data.underlyingPrice.toFixed(2)}`;
+
+  const pctBias = ((stats.askBias - 0.5) * 200).toFixed(1);
+  const chEl    = document.getElementById('tb-change');
+  chEl.textContent = `${pctBias > 0 ? '+' : ''}${pctBias}% ask bias`;
+  chEl.className   = `tb-change ${pctBias > 0 ? 'up' : 'down'}`;
+
+  document.getElementById('tb-callvol').textContent = (stats.callVol/1000).toFixed(0)+'K';
+  document.getElementById('tb-putvol').textContent  = (stats.putVol/1000).toFixed(0)+'K';
+  document.getElementById('tb-pcratio').textContent = stats.pcRatio.toFixed(2);
+  document.getElementById('tb-signals').textContent = signals.firing.length;
+  const netP = stats.netPrem;
+  const netEl = document.getElementById('tb-prem');
+  netEl.textContent = `${netP>0?'+':''}$${(netP/1000).toFixed(1)}K`;
+  netEl.style.color = netP>0 ? 'var(--long)' : 'var(--short)';
+
+  // Verdict
+  const vs = document.getElementById('verdict-signal');
+  vs.textContent = verdict;
+  vs.className   = verdict;
+  document.getElementById('verdict-score').textContent = `score ${score > 0?'+':''}${score}`;
+
+  // Summary
+  const sumEl = document.getElementById('signal-summary');
+  const bullPct = (stats.askBias*100).toFixed(0);
+  sumEl.innerHTML = `
+    <span style="color:${stats.askBias>0.5?'var(--long)':'var(--short)'}">
+      ${bullPct}% ask-side aggression
+    </span><br>
+    P/C ratio <b style="color:${stats.pcRatio>1?'var(--short)':'var(--long)'}">${stats.pcRatio.toFixed(2)}</b>
+    &nbsp;•&nbsp;
+    ${signals.firingCalls} call / ${signals.firingPuts} put 2× signals<br>
+    Net premium <b style="color:${netP>0?'var(--long)':'var(--short)'}">
+      ${netP>0?'CALLS DOMINATE':'PUTS DOMINATE'}
+    </b>
+  `;
+
+  // Signal list
+  const listEl = document.getElementById('signal-list');
+  listEl.innerHTML = '';
+
+  const sorted = [...signals.firing].sort((a,b)=>b.volSig.ratio-a.volSig.ratio);
+  if (sorted.length === 0) {
+    listEl.innerHTML = '<div style="font-size:10px;color:var(--dim);padding:8px 0">No 2× signals — need ≥5 active minutes per strike</div>';
+  }
+  for (const s of sorted) {
+    const isDual = signals.dual.includes(s);
+    const col    = s.type==='call' ? 'var(--call)' : 'var(--put)';
+    const card   = document.createElement('div');
+    card.className = `signal-card ${isDual?'dual':'vol2x'}`;
+    card.innerHTML = `
+      <div class="sc-dot ${isDual?'dual':s.type}"></div>
+      <div>
+        <div class="sc-strike" style="color:${col}">
+          $${s.strike} ${s.type.toUpperCase()} ${isDual?'⚡':''}
+        </div>
+        <div class="sc-meta">
+          ${s.volSig.count} active min &nbsp;·&nbsp;
+          aggr ${(s.aggression*100).toFixed(0)}%
+          ${isDual ? '<br><span style="color:var(--short);font-size:9px">DUAL SIGNAL</span>':''}
+        </div>
+      </div>
+      <div class="sc-ratio">${s.volSig.ratio.toFixed(1)}×</div>
+    `;
+    listEl.appendChild(card);
+  }
+}
+
+/* ═══════════════════════════════════════════════════
+   BOOTSTRAP
+═══════════════════════════════════════════════════ */
+async function main() {
+  const setStatus = s => document.getElementById('ld-status').textContent = s;
+
+  try {
+    setStatus('READING DATA.JSON...');
+    const fullData = await Processor.load('./data.json');
+
+    setStatus('BUILDING PLAYBACK ENGINE...');
+    await new Promise(r=>setTimeout(r,40));
+
+    // Build playback engine from raw trades
+    const engine = new PlaybackEngine(fullData._rawTrades);
+
+    document.getElementById('loading').style.display = 'none';
+    document.getElementById('app').style.display     = 'grid';
+
+    // Render the full dataset initially in HUD (static stats)
+    buildHUD(fullData);
+
+    const flowCanvas  = document.getElementById('flow-canvas');
+    const priceCanvas = document.getElementById('price-canvas');
+    const netCanvas   = document.getElementById('flow-bar-canvas');
+
+    // Renderers — will be re-fed data on each tick
+    let mapR   = new StrikeMapRenderer(flowCanvas, fullData);
+    const priceR = new PriceChartRenderer(priceCanvas, fullData);
+    const netR   = new NetFlowRenderer(netCanvas, fullData);
+
+    priceR.buildPriceHistory(fullData);
+
+    // ── TIMELINE UI ──────────────────────────────
+    const tWrap  = document.getElementById('timeline-wrap');
+    const tFill  = document.getElementById('timeline-fill');
+    const tThumb = document.getElementById('timeline-thumb');
+    const tTicks = document.getElementById('timeline-ticks');
+    const tTime  = document.getElementById('playback-time');
+    const tMinLbl= document.getElementById('pb-min-label');
+    const tTrades= document.getElementById('pb-trade-count');
+    const btnPlay= document.getElementById('btn-play');
+    const btnRst = document.getElementById('btn-restart');
+
+    // Build tick marks
+    tTicks.innerHTML = '';
+    const totalM = engine.totalMinutes;
+    const tickStep = Math.max(1, Math.floor(totalM / 6));
+    for (let i = 0; i < totalM; i += tickStep) {
+      const pct = totalM > 1 ? (i/(totalM-1))*100 : 0;
+      const span = document.createElement('span');
+      span.className = 'tick-label';
+      span.style.left = pct + '%';
+      span.style.position = 'absolute';
+      span.textContent = engine.minuteLabel(i);
+      tTicks.appendChild(span);
+    }
+
+    function updateTimelineUI() {
+      const pct = (engine.progress * 100).toFixed(1);
+      tFill.style.width  = pct + '%';
+      tThumb.style.left  = pct + '%';
+      tTime.textContent  = engine.minuteLabel(engine.currentMin);
+      const tradesNow = engine.tradesUpTo(engine.currentMin).length;
+      tMinLbl.textContent  = `MIN ${engine.currentMin+1} / ${engine.totalMinutes}`;
+      tTrades.textContent  = `${tradesNow} trades`;
+      btnPlay.textContent  = engine.playing ? '⏸' : '▶';
+      btnPlay.className    = engine.playing ? 'playing' : '';
+    }
+
+    // Scrubber click/drag
+    let scrubbing = false;
+    function scrubAt(e) {
+      const rect = tWrap.getBoundingClientRect();
+      const frac = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+      engine.seekTo(frac);
+      updateTimelineUI();
+      const snapshot = new Processor({ data: engine.tradesUpTo(engine.currentMin) }).run();
+      mapR.data = snapshot;
+      priceR.buildPriceHistory(snapshot);
+      netR.data = snapshot;
+    }
+    tWrap.addEventListener('mousedown', e => { scrubbing=true; engine.pause(); scrubAt(e); });
+    window.addEventListener('mousemove', e => { if(scrubbing) scrubAt(e); });
+    window.addEventListener('mouseup',   () => { scrubbing=false; });
+
+    // Play/pause
+    btnPlay.addEventListener('click', () => {
+      if (engine.currentMin >= engine.totalMinutes-1) engine.restart();
+      engine.playing ? engine.pause() : engine.play();
+      btnPlay.textContent = engine.playing ? '⏸' : '▶';
+      btnPlay.className   = engine.playing ? 'playing' : '';
+    });
+
+    // Restart
+    btnRst.addEventListener('click', () => {
+      engine.restart();
+      updateTimelineUI();
+    });
+
+    // Speed buttons
+    document.querySelectorAll('.speed-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        engine.speed = parseFloat(btn.dataset.speed);
+        document.querySelectorAll('.speed-btn').forEach(b=>b.classList.remove('active'));
+        btn.classList.add('active');
+      });
+    });
+
+    // Keyboard shortcuts
+    window.addEventListener('keydown', e => {
+      if (e.key === ' ') {
+        e.preventDefault();
+        btnPlay.click();
+      }
+      if (e.key === 'ArrowLeft') {
+        engine.seekTo(Math.max(0, engine.progress - 1/(engine.totalMinutes||1)));
+      }
+      if (e.key === 'ArrowRight') {
+        engine.seekTo(Math.min(1, engine.progress + 1/(engine.totalMinutes||1)));
+      }
+    });
+
+    // On each engine tick: reprocess data for the visible window and redraw
+    engine.onTick = (minIdx) => {
+      const subset  = engine.tradesUpTo(minIdx);
+      const snapshot = new Processor({ data: subset }).run();
+      mapR.data  = snapshot;
+      priceR.buildPriceHistory(snapshot);
+      netR.data  = snapshot;
+      // Update verdict + signals in HUD
+      buildHUD(snapshot);
+      updateTimelineUI();
+    };
+
+    // Start at last minute (full view) — user hits play to replay
+    engine.seekTo(1);
+    updateTimelineUI();
+
+    // Animate loop
+    let t = 0;
+    function animate() {
+      const now = performance.now();
+      t = now * 0.001;
+      engine.tick(now);
+      mapR.draw(t);
+      priceR.draw(t);
+      netR.draw(t);
+      updateTimelineUI();
+      requestAnimationFrame(animate);
+    }
+    animate();
+
+  } catch(err) {
+    document.getElementById('loading').style.display = 'none';
+    const e = document.getElementById('error-screen');
+    e.style.display = 'flex';
+    document.getElementById('err-body').textContent = err.message;
+    console.error(err);
+  }
+}
+
+main();
+</script>
+</body>
+</html>
